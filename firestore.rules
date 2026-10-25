@@ -1,0 +1,419 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: {userId} (Must match request.auth.uid)
+    // Fields:
+    //   - id: string (optional, 1-128 chars, matches document ID)
+    //   - phone: string (optional, 8-20 chars) - Alias for phoneNumber
+    //   - phoneNumber: string (required, 8-20 chars) - User contact number
+    //   - name: string (required, 1-100 chars) - Display name
+    //   - email: string (optional/nullable, valid email format, max 100 chars)
+    //   - role: string (required, 'seeker' | 'host' | 'both') - User role
+    //   - apartmentName: string (optional/nullable, max 150 chars) - Society name
+    //   - flatNumber: string (optional/nullable, max 50 chars) - Flat / unit number
+    //   - city: string (optional/nullable, max 100 chars) - City name
+    //   - upiId: string (optional/nullable, max 80 chars) - Host payout UPI VPA
+    //   - evModel: string (optional/nullable, max 100 chars) - Vehicle model
+    //   - evConnectorType: string (optional/nullable, max 50 chars) - Connector preference
+    //   - rating: number (required, 0.0 - 5.0, immutable on client updates)
+    //   - createdAt: timestamp (required, recent on create, immutable on update)
+    //
+    // Collection: chargers
+    // Document ID: {chargerId}
+    // Fields:
+    //   - id: string (optional, 1-100 chars, matches document ID)
+    //   - hostId: string (required, immutable, must match request.auth.uid on create)
+    //   - hostName: string (required, 1-100 chars)
+    //   - hostPhone: string (required, 8-20 chars)
+    //   - title: string (required, 1-150 chars) - Listing title
+    //   - description: string (required, 0-1000 chars)
+    //   - apartmentName: string (required, 1-150 chars)
+    //   - parkingSlotNumber: string (required, 1-50 chars)
+    //   - societyGateInstructions: string (required, 0-500 chars)
+    //   - address: string (required, 0-250 chars)
+    //   - latitude: number (required, -90.0 to 90.0)
+    //   - longitude: number (required, -180.0 to 180.0)
+    //   - geohash: string (required, 1-12 chars) - Base32 Geohash for proximity queries
+    //   - distanceFromHighwayKm: number (required, >= 0.0 and <= 1000.0)
+    //   - nearbyHighway: string (required, 0-100 chars)
+    //   - connectorType: string (required, 'type2' | 'ccs2' | 'socket15A' | 'bharatAC001')
+    //   - powerKw: number (optional, > 0.0 and <= 500.0, alias for powerOutputKw)
+    //   - powerOutputKw: number (required, > 0.0 and <= 500.0)
+    //   - pricingType: string (required, 'per_hour' | 'per_kwh')
+    //   - pricePerUnit: number (optional, >= 0.0 and <= 10000.0, alias for priceRateInr)
+    //   - priceRateInr: number (required, >= 0.0 and <= 10000.0)
+    //   - availableFrom: string (required, 0-20 chars) - e.g. "09:00"
+    //   - availableTo: string (required, 0-20 chars) - e.g. "18:00"
+    //   - availableDays: list of strings (required, size <= 7)
+    //   - isAutoApprove: bool (required)
+    //   - isAvailable: bool (required) - Host availability toggle
+    //   - amenities: list of strings (required, size <= 20)
+    //   - rating: number (required, 0.0 - 5.0, immutable on client updates)
+    //   - totalSessions: int (required, >= 0, immutable on client updates)
+    //   - createdAt: timestamp (required, recent on create, immutable on update)
+    //
+    // Collection: bookings
+    // Document ID: {bookingId}
+    // Fields:
+    //   - id: string (optional, 1-100 chars, matches document ID)
+    //   - chargerId: string (required, 1-100 chars, immutable)
+    //   - chargerTitle: string (required, 1-150 chars, immutable)
+    //   - hostId: string (required, 1-128 chars, immutable)
+    //   - hostName: string (required, 1-100 chars, immutable)
+    //   - hostPhone: string (required, 8-20 chars, immutable)
+    //   - seekerId: string (required, immutable, must match request.auth.uid on create)
+    //   - seekerName: string (required, 1-100 chars, immutable)
+    //   - seekerPhone: string (required, 8-20 chars, immutable)
+    //   - connectorType: string (required, 1-50 chars, immutable)
+    //   - apartmentName: string (required, 1-150 chars, immutable)
+    //   - parkingSlotNumber: string (required, 1-50 chars, immutable)
+    //   - societyGateInstructions: string (required, 0-500 chars, immutable)
+    //   - startTime: timestamp (required, immutable)
+    //   - endTime: timestamp (required, immutable)
+    //   - durationMinutes: int (required, 1-1440, immutable)
+    //   - estimatedUnitsKwh: number (required, >= 0.0 and <= 500.0, immutable)
+    //   - totalAmount: number (optional, >= 0.0, <= 100000.0, alias for estimatedCostInr)
+    //   - estimatedCostInr: number (required, >= 0.0, <= 100000.0, immutable)
+    //   - finalCostInr: number (optional/nullable, >= 0.0, <= 100000.0)
+    //   - status: string (required, 'pending'|'confirmed'|'charging'|'completed'|'cancelled'|'rejected')
+    //   - paymentStatus: string (required, 'pending'|'paid'|'refunded')
+    //   - paymentMethod: string (required, 1-50 chars)
+    //   - paymentTransactionId: string (optional/nullable, max 100 chars)
+    //   - otpStartCode: string (required, 4-8 chars, immutable)
+    //   - otpEndCode: string (required, 4-8 chars, immutable)
+    //   - vehicleNumber: string (required, 1-20 chars, immutable)
+    //   - createdAt: timestamp (required, recent on create, immutable on update)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function hasRequiredFields(data, fields) {
+      return data.keys().hasAll(fields);
+    }
+
+    function hasOnlyAllowedFields(data, fields) {
+      return data.keys().hasOnly(fields);
+    }
+
+    function areImmutableFieldsUnchanged(fields) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
+    }
+
+    function isRecent(time) {
+      return time is timestamp &&
+             time > request.time - duration.value(5, 'm') &&
+             time <= request.time + duration.value(5, 'm');
+    }
+
+    function validString(val, minLen, maxLen) {
+      return val is string &&
+             val.size() >= minLen &&
+             val.size() <= maxLen;
+    }
+
+    function isValidOptionalString(data, field, minLen, maxLen) {
+      return !(field in data) ||
+             data[field] == null ||
+             (data[field] is string && data[field].size() >= minLen && data[field].size() <= maxLen);
+    }
+
+    function isValidEmail(email) {
+      return email is string &&
+             email.size() <= 100 &&
+             email.matches('^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$');
+    }
+
+    // ===============================================================
+    // Domain Validators: Users
+    // ===============================================================
+
+    function isValidUserFields(data) {
+      let allowed = [
+        'id', 'phone', 'phoneNumber', 'name', 'email', 'role',
+        'apartmentName', 'flatNumber', 'city', 'upiId',
+        'evModel', 'evConnectorType', 'rating', 'createdAt'
+      ];
+      let required = ['phoneNumber', 'name', 'role', 'rating', 'createdAt'];
+
+      return hasRequiredFields(data, required) &&
+             hasOnlyAllowedFields(data, allowed) &&
+             isValidOptionalString(data, 'id', 1, 128) &&
+             isValidOptionalString(data, 'phone', 8, 20) &&
+             validString(data.phoneNumber, 8, 20) &&
+             validString(data.name, 1, 100) &&
+             (data.role in ['seeker', 'host', 'both']) &&
+             (data.rating is number && data.rating >= 0 && data.rating <= 5) &&
+             (data.createdAt is timestamp) &&
+             (!( 'email' in data ) || data.email == null || isValidEmail(data.email)) &&
+             isValidOptionalString(data, 'apartmentName', 1, 150) &&
+             isValidOptionalString(data, 'flatNumber', 1, 50) &&
+             isValidOptionalString(data, 'city', 1, 100) &&
+             isValidOptionalString(data, 'upiId', 3, 80) &&
+             isValidOptionalString(data, 'evModel', 1, 100) &&
+             isValidOptionalString(data, 'evConnectorType', 1, 50);
+    }
+
+    function isValidUserCreate(data) {
+      return isValidUserFields(data) &&
+             isRecent(data.createdAt);
+    }
+
+    function isValidUserUpdate(data, existing) {
+      return isValidUserFields(data) &&
+             areImmutableFieldsUnchanged(['createdAt', 'rating']);
+    }
+
+    // ===============================================================
+    // Domain Validators: Chargers
+    // ===============================================================
+
+    function isValidChargerFields(data) {
+      let allowed = [
+        'id', 'hostId', 'hostName', 'hostPhone', 'title', 'description',
+        'apartmentName', 'parkingSlotNumber', 'societyGateInstructions',
+        'address', 'latitude', 'longitude', 'geohash',
+        'distanceFromHighwayKm', 'nearbyHighway', 'connectorType',
+        'powerKw', 'powerOutputKw', 'pricingType', 'pricePerUnit', 'priceRateInr',
+        'availableFrom', 'availableTo', 'availableDays',
+        'isAutoApprove', 'isAvailable', 'amenities',
+        'rating', 'totalSessions', 'createdAt'
+      ];
+      let required = [
+        'hostId', 'hostName', 'hostPhone', 'title', 'description',
+        'apartmentName', 'parkingSlotNumber', 'societyGateInstructions',
+        'address', 'latitude', 'longitude', 'geohash',
+        'distanceFromHighwayKm', 'nearbyHighway', 'connectorType',
+        'powerOutputKw', 'pricingType', 'priceRateInr',
+        'availableFrom', 'availableTo', 'availableDays',
+        'isAutoApprove', 'isAvailable', 'amenities',
+        'rating', 'totalSessions', 'createdAt'
+      ];
+
+      return hasRequiredFields(data, required) &&
+             hasOnlyAllowedFields(data, allowed) &&
+             isValidOptionalString(data, 'id', 1, 100) &&
+             validString(data.hostId, 1, 128) &&
+             validString(data.hostName, 1, 100) &&
+             validString(data.hostPhone, 8, 20) &&
+             validString(data.title, 1, 150) &&
+             validString(data.description, 0, 1000) &&
+             validString(data.apartmentName, 1, 150) &&
+             validString(data.parkingSlotNumber, 1, 50) &&
+             validString(data.societyGateInstructions, 0, 500) &&
+             validString(data.address, 0, 250) &&
+             (data.latitude is number && data.latitude >= -90.0 && data.latitude <= 90.0) &&
+             (data.longitude is number && data.longitude >= -180.0 && data.longitude <= 180.0) &&
+             validString(data.geohash, 1, 12) &&
+             (data.distanceFromHighwayKm is number && data.distanceFromHighwayKm >= 0.0 && data.distanceFromHighwayKm <= 1000.0) &&
+             validString(data.nearbyHighway, 0, 100) &&
+             (data.connectorType in ['type2', 'ccs2', 'socket15A', 'bharatAC001', 'Type 2 (AC)', 'CCS2 (DC Fast)', '15A 3-Pin Socket', 'Bharat AC001']) &&
+             (!( 'powerKw' in data ) || data.powerKw == null || (data.powerKw is number && data.powerKw > 0.0 && data.powerKw <= 500.0)) &&
+             (data.powerOutputKw is number && data.powerOutputKw > 0.0 && data.powerOutputKw <= 500.0) &&
+             (data.pricingType in ['per_hour', 'per_kwh']) &&
+             (!( 'pricePerUnit' in data ) || data.pricePerUnit == null || (data.pricePerUnit is number && data.pricePerUnit >= 0.0 && data.pricePerUnit <= 10000.0)) &&
+             (data.priceRateInr is number && data.priceRateInr >= 0.0 && data.priceRateInr <= 10000.0) &&
+             validString(data.availableFrom, 0, 20) &&
+             validString(data.availableTo, 0, 20) &&
+             (data.availableDays is list && data.availableDays.size() <= 7) &&
+             (data.isAutoApprove is bool) &&
+             (data.isAvailable is bool) &&
+             (data.amenities is list && data.amenities.size() <= 20) &&
+             (data.rating is number && data.rating >= 0.0 && data.rating <= 5.0) &&
+             (data.totalSessions is int && data.totalSessions >= 0) &&
+             (data.createdAt is timestamp);
+    }
+
+    function isValidChargerCreate(data) {
+      return isValidChargerFields(data) &&
+             data.hostId == request.auth.uid &&
+             isRecent(data.createdAt);
+    }
+
+    function isValidChargerUpdate(data, existing) {
+      return isValidChargerFields(data) &&
+             areImmutableFieldsUnchanged(['hostId', 'createdAt', 'rating', 'totalSessions']);
+    }
+
+    // ===============================================================
+    // Domain Validators: Bookings
+    // ===============================================================
+
+    function isValidBookingFields(data) {
+      let allowed = [
+        'id', 'chargerId', 'chargerTitle', 'hostId', 'hostName', 'hostPhone',
+        'seekerId', 'seekerName', 'seekerPhone', 'connectorType',
+        'apartmentName', 'parkingSlotNumber', 'societyGateInstructions',
+        'startTime', 'endTime', 'durationMinutes', 'estimatedUnitsKwh',
+        'totalAmount', 'estimatedCostInr', 'finalCostInr', 'status', 'paymentStatus',
+        'paymentMethod', 'paymentTransactionId', 'otpStartCode', 'otpEndCode',
+        'vehicleNumber', 'createdAt'
+      ];
+      let required = [
+        'chargerId', 'chargerTitle', 'hostId', 'hostName', 'hostPhone',
+        'seekerId', 'seekerName', 'seekerPhone', 'connectorType',
+        'apartmentName', 'parkingSlotNumber', 'societyGateInstructions',
+        'startTime', 'endTime', 'durationMinutes', 'estimatedUnitsKwh',
+        'estimatedCostInr', 'status', 'paymentStatus', 'paymentMethod',
+        'otpStartCode', 'otpEndCode', 'vehicleNumber', 'createdAt'
+      ];
+
+      return hasRequiredFields(data, required) &&
+             hasOnlyAllowedFields(data, allowed) &&
+             isValidOptionalString(data, 'id', 1, 100) &&
+             validString(data.chargerId, 1, 100) &&
+             validString(data.chargerTitle, 1, 150) &&
+             validString(data.hostId, 1, 128) &&
+             validString(data.hostName, 1, 100) &&
+             validString(data.hostPhone, 8, 20) &&
+             validString(data.seekerId, 1, 128) &&
+             validString(data.seekerName, 1, 100) &&
+             validString(data.seekerPhone, 8, 20) &&
+             validString(data.connectorType, 1, 50) &&
+             validString(data.apartmentName, 1, 150) &&
+             validString(data.parkingSlotNumber, 1, 50) &&
+             validString(data.societyGateInstructions, 0, 500) &&
+             (data.startTime is timestamp) &&
+             (data.endTime is timestamp) &&
+             (data.endTime >= data.startTime) &&
+             (data.durationMinutes is int && data.durationMinutes >= 1 && data.durationMinutes <= 1440) &&
+             (data.estimatedUnitsKwh is number && data.estimatedUnitsKwh >= 0.0 && data.estimatedUnitsKwh <= 500.0) &&
+             (!( 'totalAmount' in data ) || data.totalAmount == null || (data.totalAmount is number && data.totalAmount >= 0.0 && data.totalAmount <= 100000.0)) &&
+             (data.estimatedCostInr is number && data.estimatedCostInr >= 0.0 && data.estimatedCostInr <= 100000.0) &&
+             (!( 'finalCostInr' in data ) || data.finalCostInr == null || (data.finalCostInr is number && data.finalCostInr >= 0.0 && data.finalCostInr <= 100000.0)) &&
+             (data.status in ['pending', 'confirmed', 'charging', 'completed', 'cancelled', 'rejected']) &&
+             (data.paymentStatus in ['pending', 'paid', 'refunded']) &&
+             validString(data.paymentMethod, 1, 50) &&
+             isValidOptionalString(data, 'paymentTransactionId', 1, 100) &&
+             validString(data.otpStartCode, 4, 8) &&
+             validString(data.otpEndCode, 4, 8) &&
+             validString(data.vehicleNumber, 1, 20) &&
+             (data.createdAt is timestamp);
+    }
+
+    function isValidBookingCreate(data) {
+      return isValidBookingFields(data) &&
+             data.seekerId == request.auth.uid &&
+             (data.status in ['pending', 'confirmed']) &&
+             (data.paymentStatus in ['pending', 'paid']) &&
+             isRecent(data.createdAt);
+    }
+
+    function isValidBookingUpdate(data, existing) {
+      return isValidBookingFields(data) &&
+             areImmutableFieldsUnchanged([
+               'chargerId', 'chargerTitle', 'hostId', 'seekerId',
+               'startTime', 'endTime', 'durationMinutes', 'estimatedUnitsKwh',
+               'estimatedCostInr', 'otpStartCode', 'otpEndCode',
+               'vehicleNumber', 'createdAt'
+             ]);
+    }
+
+    // ===============================================================
+    // Root Match: Default Deny
+    // ===============================================================
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ===============================================================
+    // Collection: users
+    // Requirement 1: Users can read and write only their own profiles
+    // ===============================================================
+    match /users/{userId} {
+      // Users can read only their own profiles
+      allow read: if isOwner(userId);
+
+      // Users can create only their own profile
+      allow create: if isOwner(userId) &&
+                       isValidUserCreate(request.resource.data);
+
+      // Users can update only their own profile
+      allow update: if isOwner(userId) &&
+                       isValidUserUpdate(request.resource.data, resource.data);
+
+      // Users can delete only their own profile
+      allow delete: if isOwner(userId);
+
+      // In-app notifications subcollection
+      match /notifications/{notificationId} {
+        allow read, update, delete: if isOwner(userId);
+        allow create: if false; // Created via backend Admin SDK Cloud Functions
+      }
+    }
+
+    // ===============================================================
+    // Collection: chargers
+    // Requirement 2: Anyone authenticated can read active/available chargers
+    //                (resource.data.isAvailable == true OR host resource.data.hostId == request.auth.uid)
+    // Requirement 3: Only the host can create/update their own charger listings
+    //                (request.resource.data.hostId == request.auth.uid on create,
+    //                 resource.data.hostId == request.auth.uid on update/delete)
+    // ===============================================================
+    match /chargers/{chargerId} {
+      // Anyone authenticated can read active/available chargers, or hosts can read their own listings
+      allow read: if isAuthenticated() &&
+                     (resource.data.isAvailable == true ||
+                      resource.data.hostId == request.auth.uid);
+
+      // Only the host can create their own charger listings
+      allow create: if isAuthenticated() &&
+                       request.resource.data.hostId == request.auth.uid &&
+                       isValidChargerCreate(request.resource.data);
+
+      // Only the host can update their own charger listings
+      allow update: if isAuthenticated() &&
+                       resource.data.hostId == request.auth.uid &&
+                       request.resource.data.hostId == resource.data.hostId &&
+                       isValidChargerUpdate(request.resource.data, resource.data);
+
+      // Only the host can delete their own charger listings
+      allow delete: if isAuthenticated() &&
+                       resource.data.hostId == request.auth.uid;
+    }
+
+    // ===============================================================
+    // Collection: bookings
+    // Requirement 4: Seekers can create bookings (request.resource.data.seekerId == request.auth.uid)
+    //                and read/update their own reservations
+    //                (request.auth.uid == resource.data.seekerId or request.auth.uid == resource.data.hostId)
+    // ===============================================================
+    match /bookings/{bookingId} {
+      // Seekers and hosts can read their own reservations
+      allow read: if isAuthenticated() &&
+                     (request.auth.uid == resource.data.seekerId ||
+                      request.auth.uid == resource.data.hostId);
+
+      // Seekers can create bookings for themselves
+      allow create: if isAuthenticated() &&
+                       request.resource.data.seekerId == request.auth.uid &&
+                       isValidBookingCreate(request.resource.data);
+
+      // Seekers and hosts can update their own reservations
+      allow update: if isAuthenticated() &&
+                       (request.auth.uid == resource.data.seekerId ||
+                        request.auth.uid == resource.data.hostId) &&
+                       isValidBookingUpdate(request.resource.data, resource.data);
+
+      // Bookings cannot be deleted by clients; audit trail preservation
+      allow delete: if false;
+    }
+
+  }
+}

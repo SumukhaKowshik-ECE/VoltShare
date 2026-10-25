@@ -1,0 +1,42 @@
+name: voltshare
+description: "VoltShare India - Peer-to-Peer EV Charging Sharing Ecosystem for Apartment Residents and Travelers"
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # State Management
+  flutter_riverpod: ^2.5.1
+
+  # Firebase Core & Services
+  firebase_core: ^3.0.0
+  firebase_auth: ^5.0.0
+  cloud_firestore: ^5.0.0
+
+  # Geolocation & Distance & Maps
+  geolocator: ^12.0.0
+  google_maps_flutter: ^2.6.0
+
+  # UI, Icons, Typography & Indian Formatting
+  intl: ^0.19.0
+  uuid: ^4.4.0
+  url_launcher: ^6.3.0
+  http: ^1.2.0
+  font_awesome_flutter: ^10.7.0
+  google_fonts: ^6.2.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/
+    - assets/icons/
